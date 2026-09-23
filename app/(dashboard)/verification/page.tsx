@@ -12,6 +12,7 @@ import {
   Phone,
   Plus,
   Search,
+  ShieldAlert,
   Trash2,
   Upload,
   UserCheck,
@@ -29,7 +30,11 @@ import {
   getVerifications,
   updateVerification,
   uploadVerificationCSV,
+} from "@/lib/api";
+import type {
+  VerificationList,
   VerificationRecord,
+  VerificationStatus,
 } from "@/lib/api";
 import { apiError } from "@/lib/utils";
 
@@ -77,13 +82,51 @@ export default function VerificationPage() {
     onError: (e) => toast.error(apiError(e)),
   });
 
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: VerificationStatus }) =>
+      updateVerification(id, { status }),
+    onMutate: async ({ id, status }) => {
+      await qc.cancelQueries({ queryKey: ["verifications"] });
+      const previous = qc.getQueriesData<VerificationList>({
+        queryKey: ["verifications"],
+      });
+      qc.setQueriesData<VerificationList>(
+        { queryKey: ["verifications"] },
+        (current) =>
+          current
+            ? {
+                ...current,
+                verifications: current.verifications.map((record) =>
+                  record._id === id ? { ...record, status } : record
+                ),
+              }
+            : current
+      );
+      return { previous };
+    },
+    onSuccess: (_response, { status }) => {
+      toast.success(
+        `Status updated to ${status === "verified" ? "Verified" : "Fraudulent"}`
+      );
+    },
+    onError: (error, _variables, context) => {
+      context?.previous.forEach(([queryKey, data]) => {
+        qc.setQueryData(queryKey, data);
+      });
+      toast.error(apiError(error));
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["verifications"] });
+    },
+  });
+
   // Function to download a ready-to-use sample CSV file
   const downloadSampleCSV = () => {
     const csvContent =
-      "email,phone,account,website\n" +
-      "john.doe@example.com,+1234567890,ACC-88219,https://example.com\n" +
-      "sarah.connor@test.com,+9876543210,ACC-99432,https://mywebsite.org\n" +
-      "alex.smith@company.io,+1122334455,ACC-44120,https://company.io\n";
+      "email,phone,account,website,status\n" +
+      "john.doe@example.com,+1234567890,ACC-88219,https://example.com,verified\n" +
+      "sarah.connor@test.com,+9876543210,ACC-99432,https://mywebsite.org,fraudulent\n" +
+      "alex.smith@company.io,+1122334455,ACC-44120,https://company.io,\n";
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -162,87 +205,118 @@ export default function VerificationPage() {
                 </tr>
               ))
             ) : records.length ? (
-              records.map((r) => (
-                <tr
-                  key={r._id}
-                  className="transition hover:bg-slate-50/50"
-                >
-                  <td className="px-6 py-4 font-medium text-slate-900">
-                    <div className="flex items-center gap-2">
-                      <Mail size={15} className="text-slate-400" />
-                      <span>{r.email || "—"}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">
-                    <div className="flex items-center gap-2">
-                      <Phone size={15} className="text-slate-400" />
-                      <span>{r.phone || "—"}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-700">
-                    {r.account ? (
-                      <span className="inline-block rounded-md bg-slate-100 px-2.5 py-1 font-mono text-xs font-semibold text-slate-800">
-                        {r.account}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">
-                    {r.website ? (
-                      <a
-                        href={
-                          r.website.startsWith("http")
-                            ? r.website
-                            : `https://${r.website}`
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 text-[#a48734] hover:underline"
-                      >
-                        <Globe size={14} />
-                        <span className="max-w-[200px] truncate">
-                          {r.website}
+              records.map((r) => {
+                const status = canonicalStatus(r.status);
+                const isUpdatingStatus =
+                  statusMutation.isPending &&
+                  statusMutation.variables?.id === r._id;
+                return (
+                  <tr
+                    key={r._id}
+                    className="transition hover:bg-slate-50/50"
+                  >
+                    <td className="px-6 py-4 font-medium text-slate-900">
+                      <div className="flex items-center gap-2">
+                        <Mail size={15} className="text-slate-400" />
+                        <span>{r.email || "—"}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      <div className="flex items-center gap-2">
+                        <Phone size={15} className="text-slate-400" />
+                        <span>{r.phone || "—"}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-700">
+                      {r.account ? (
+                        <span className="inline-block rounded-md bg-slate-100 px-2.5 py-1 font-mono text-xs font-semibold text-slate-800">
+                          {r.account}
                         </span>
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#f7f0df] px-3 py-1 text-xs font-medium text-[#907326]">
-                      <BadgeCheck size={13} />
-                      {r.status || "Verified"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-8 text-slate-500 hover:text-slate-900"
-                        onClick={() => setEditing(r)}
-                        title="Edit record"
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-slate-600">
+                      {r.website ? (
+                        <a
+                          href={
+                            r.website.startsWith("http")
+                              ? r.website
+                              : `https://${r.website}`
+                          }
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 text-[#a48734] hover:underline"
+                        >
+                          <Globe size={14} />
+                          <span className="max-w-[200px] truncate">
+                            {r.website}
+                          </span>
+                        </a>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div
+                        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${
+                          status === "verified"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-red-200 bg-red-50 text-red-700"
+                        }`}
                       >
-                        <Pencil size={15} />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="size-8 text-red-500 hover:bg-red-50 hover:text-red-600"
-                        disabled={deleteMutation.isPending}
-                        onClick={() =>
-                          confirm("Delete this verification record?") &&
-                          deleteMutation.mutate(r._id)
-                        }
-                        title="Delete record"
-                      >
-                        <Trash2 size={15} />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                        {status === "verified" ? (
+                          <BadgeCheck size={14} />
+                        ) : (
+                          <ShieldAlert size={14} />
+                        )}
+                        <select
+                          aria-label={`Status for ${recordLabel(r)}`}
+                          value={status}
+                          disabled={isUpdatingStatus}
+                          onChange={(event) =>
+                            statusMutation.mutate({
+                              id: r._id,
+                              status: event.target
+                                .value as VerificationStatus,
+                            })
+                          }
+                          className="cursor-pointer bg-transparent pr-1 capitalize outline-none disabled:cursor-wait disabled:opacity-60"
+                        >
+                          <option value="verified">Verified</option>
+                          <option value="fraudulent">Fraudulent</option>
+                        </select>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-8 text-slate-500 hover:text-slate-900"
+                          onClick={() => setEditing(r)}
+                          title="Edit record"
+                        >
+                          <Pencil size={15} />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-8 text-red-500 hover:bg-red-50 hover:text-red-600"
+                          disabled={deleteMutation.isPending}
+                          onClick={() =>
+                            confirm("Delete this verification record?") &&
+                            deleteMutation.mutate(r._id)
+                          }
+                          title="Delete record"
+                        >
+                          <Trash2 size={15} />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             ) : (
               <tr>
                 <td
@@ -321,6 +395,9 @@ function RecordModal({
   const [phone, setPhone] = useState(item?.phone || "");
   const [account, setAccount] = useState(item?.account || "");
   const [website, setWebsite] = useState(item?.website || "");
+  const [status, setStatus] = useState<VerificationStatus>(
+    canonicalStatus(item?.status)
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -328,7 +405,7 @@ function RecordModal({
       toast.error("Please provide at least one detail");
       return;
     }
-    submit({ email, phone, account, website });
+    submit({ email, phone, account, website, status });
   };
 
   return (
@@ -398,6 +475,23 @@ function RecordModal({
               placeholder="e.g. https://example.com"
               className="mt-1.5 border-slate-300"
             />
+          </label>
+
+          <label className="block text-sm font-medium text-slate-700">
+            Status <span className="font-normal text-slate-400">(optional)</span>
+            <select
+              value={status}
+              onChange={(event) =>
+                setStatus(event.target.value as VerificationStatus)
+              }
+              className="mt-1.5 flex h-10 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-[#a48734] focus:ring-2 focus:ring-[#a48734]/20"
+            >
+              <option value="verified">Verified</option>
+              <option value="fraudulent">Fraudulent</option>
+            </select>
+            <span className="mt-1 block text-xs font-normal text-slate-400">
+              Defaults to Verified when unchanged.
+            </span>
           </label>
         </div>
 
@@ -539,8 +633,12 @@ function CSVUploadModal({
             </button>
           </div>
           <code className="mt-1.5 block rounded bg-white p-1.5 font-mono text-[11px] text-slate-700 border">
-            email, phone, account, website
+            email, phone, account, website, status (optional)
           </code>
+          <p className="mt-2 text-[11px] leading-4 text-slate-500">
+            Status accepts <b>verified</b> or <b>fraudulent</b>. Missing or empty
+            values default to verified.
+          </p>
         </div>
 
         <div className="mt-7 flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
@@ -569,5 +667,18 @@ function CSVUploadModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function canonicalStatus(status?: string): VerificationStatus {
+  return status?.toLowerCase() === "fraud" ||
+    status?.toLowerCase() === "fraudulent"
+    ? "fraudulent"
+    : "verified";
+}
+
+function recordLabel(record: VerificationRecord) {
+  return (
+    record.email || record.phone || record.account || record.website || "record"
   );
 }

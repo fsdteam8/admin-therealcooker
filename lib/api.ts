@@ -40,10 +40,11 @@ export const getLearningById = (id: string) => api.get<ApiResponse<LearningItem>
 export const createLearning = (payload: FormData) => api.post<ApiResponse<LearningItem>>("/learnings", payload).then(r => r.data);
 export const updateLearning = (id: string, payload: FormData) => api.put<ApiResponse<LearningItem>>(`/learnings/${id}`, payload).then(r => r.data);
 export const deleteLearning = (id: string) => api.delete<ApiResponse<null>>(`/learnings/${id}`).then(r => r.data);
-export interface VerificationRecord { _id: string; email: string; phone: string; account: string; website: string; status?: string; source?: string; createdAt?: string; updatedAt?: string; }
-export const getVerifications = (page = 1, limit = 10, search = "") => api.get<ApiResponse<{ verifications: VerificationRecord[]; pagination: Pagination }>>("/verifications", { params: { page, limit, search } }).then(r => r.data.data);
+export type VerificationStatus = "verified" | "fraudulent";
+export interface VerificationRecord { _id: string; email: string; phone: string; account: string; website: string; status?: VerificationStatus | "fraud"; source?: string; createdAt?: string; updatedAt?: string; }
+export interface VerificationList { verifications: VerificationRecord[]; pagination: Pagination; }
+export const getVerifications = (page = 1, limit = 10, search = "") => api.get<ApiResponse<VerificationList>>("/verifications", { params: { page, limit, search } }).then(r => r.data.data);
 export const createVerification = (payload: Partial<VerificationRecord>) => api.post<ApiResponse<VerificationRecord>>("/verifications", payload).then(r => r.data);
 export const updateVerification = (id: string, payload: Partial<VerificationRecord>) => api.put<ApiResponse<VerificationRecord>>(`/verifications/${id}`, payload).then(r => r.data);
 export const deleteVerification = (id: string) => api.delete<ApiResponse<null>>(`/verifications/${id}`).then(r => r.data);
 export const uploadVerificationCSV = (file: File) => { const formData = new FormData(); formData.append("file", file); return api.post<ApiResponse<{ count: number }>>("/verifications/upload-csv", formData).then(r => r.data); };
-
