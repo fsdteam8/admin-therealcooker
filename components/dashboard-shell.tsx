@@ -6,15 +6,15 @@ import { useSession } from "next-auth/react";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
-import { BadgeCheck, CircleUserRound, FileText, GraduationCap, Home, LogOut, Menu, Newspaper, Users, X } from "lucide-react";
+import { Activity, BadgeCheck, CircleUserRound, FileText, GraduationCap, Home, Landmark, LogOut, Menu, Newspaper, Users, X } from "lucide-react";
 import { Brand } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 import { logoutSession } from "@/lib/client-auth";
 import { cn } from "@/lib/utils";
 import { useAdminAccess } from "@/components/admin-access";
 
-const links = [{ href: "/dashboard", label: "Dashboard", icon: Home }, { href: "/users", label: "Users List", icon: Users }, { href: "/learning", label: "Learning", icon: GraduationCap }, { href: "/verification", label: "Verification", icon: BadgeCheck }, { href: "/news", label: "News Feed", icon: Newspaper }, { href: "/terms", label: "Terms & Conditions", icon: FileText }];
-const names: Record<string, string> = { dashboard: "Dashboard", users: "All Users List", learning: "Learning", verification: "Verification", news: "News Feed", terms: "Terms & Conditions", profile: "Profile" };
+const links = [{ href: "/dashboard", label: "Dashboard", icon: Home }, { href: "/operations", label: "Operations", icon: Activity }, { href: "/users", label: "Users List", icon: Users }, { href: "/banks", label: "Banks", icon: Landmark }, { href: "/learning", label: "Learning", icon: GraduationCap }, { href: "/verification", label: "Verification", icon: BadgeCheck }, { href: "/news", label: "News Feed", icon: Newspaper }, { href: "/terms", label: "Terms & Conditions", icon: FileText }];
+const names: Record<string, string> = { dashboard: "Dashboard", operations: "Operations", users: "All Users List", banks: "Bank Catalog", learning: "Learning", verification: "Verification", news: "News Feed", terms: "Terms & Conditions", profile: "Profile" };
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const access = useAdminAccess();
