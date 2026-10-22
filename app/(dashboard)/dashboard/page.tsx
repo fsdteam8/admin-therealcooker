@@ -1,15 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, ChartLine, Database, GraduationCap, IdCard, Landmark, ScanEye, Search, Server } from "lucide-react";
-import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Activity, Database, GraduationCap, IdCard, ScanEye, Search, Server } from "lucide-react";
+import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAdminAccess } from "@/components/admin-access";
 import { getExecutiveDashboard, getInfrastructure, type ExecutiveDashboard, type Infrastructure, type ServiceState } from "@/lib/operations";
 import { apiError, cn } from "@/lib/utils";
-import { bytes, card, dateTime, MeterRow, MiniStat, muted, Note, number, Panel, percent, SectionLabel, StatCard, timeAgo, uptimeTone } from "@/components/dashboard-ui";
+import { bytes, dateTime, MeterRow, MiniStat, muted, Note, number, Panel, percent, SectionLabel, StatCard, timeAgo, uptimeTone } from "@/components/dashboard-ui";
 
 function PanicIcon() {
   return <span className="text-[11px] font-extrabold tracking-tight">SOS</span>;
@@ -28,21 +27,14 @@ const kycStyle: Record<string, { label: string; className: string }> = {
   failed: { label: "Rejected", className: "bg-[#f9d9d9] text-[#a12b2b]" },
 };
 const serviceStateLabel: Record<ServiceState, string> = { monitored: "Monitored", collecting: "Collecting data", not_configured: "Not configured" };
-// Listed bottom-to-top as stacked in each bar; the legend chips use the reference order instead.
-const trendSeries = [
-  { key: "activeUsers", label: "Users", color: "#1c5fa8", chip: "bg-[#d9e8fa] text-[#1d5fa7]" },
-  { key: "panics", label: "Panics", color: "#b8741a", chip: "bg-[#f6dfa6] text-[#7a5200]" },
-  { key: "alerts", label: "Alerts", color: "#e24c4b", chip: "bg-[#f9d8da] text-[#a3262c]" },
-] as const;
-const trendChips = [trendSeries[0], trendSeries[2], trendSeries[1]];
 
 function Snapshot({ d }: { d: ExecutiveDashboard }) {
   const s = d.snapshot;
   return <section><SectionLabel>Platform snapshot</SectionLabel><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
     <StatCard label="Total users" value={number(s.totalUsers)} detail={s.newThisWeek ? `+${number(s.newThisWeek)} this week` : "No new users this week"} detailTone={s.newThisWeek ? "good" : undefined} title={`New users this week (${d.periods.week.label})`} />
-    <StatCard label="Active today" value={number(s.activeToday)} detail={`${number(s.activeThisMonth)} this month`} title={`Distinct users active in the app today and in ${d.periods.month.label}`} />
-    <StatCard label="Verified users" value={number(s.verifiedUsers)} detail={`${percent(s.verifiedPercent)} of registered`} title="Users whose KYC verification completed" />
-    <StatCard label="Bank-connected" value={number(s.bankConnected)} detail={`${percent(s.bankConnectedPercent)} of registered`} title="Users with at least one active bank account linked in the app" />
+    <StatCard label="Active users" value={number(s.activeToday)} detail="today" title="Distinct users active in the app today" />
+    <StatCard label="Verified users" value={number(s.verifiedUsers)} detail={`${percent(s.verifiedPercent)} of total users`} title="Users whose KYC verification completed" />
+    <StatCard label="Users with a linked account" value={number(s.linkedAccountUsers)} detail={`${percent(s.linkedAccountPercent)} of total users`} title="Users with at least one active bank or wallet account linked in the app" />
   </div></section>;
 }
 
@@ -117,10 +109,10 @@ function VerifierUsage({ d, canVerify, canEvents }: { d: ExecutiveDashboard; can
   const v = d.verifier;
   return <Panel icon={Search} title="Verifier tool usage" action={canVerify ? { href: "/verification", label: "Manage DB" } : null}>
     <div className="grid grid-cols-2 gap-3">
-      <MiniStat label="Numbers searched" value={number(v.numbers)} detail={`${number(v.byType.phone)} phone · ${number(v.byType.account)} account`} />
+      <MiniStat label="Phone numbers searched" value={number(v.byType.phone)} detail="this month" />
+      <MiniStat label="Account numbers searched" value={number(v.byType.account)} detail="this month" />
       <MiniStat label="Emails searched" value={number(v.byType.email)} detail="this month" />
       <MiniStat label="Websites searched" value={number(v.byType.website)} detail="this month" />
-      <MiniStat label="Flagged results" value={number(v.byOutcome.fraudulent)} detail={v.flagRate == null ? "No searches yet" : `${v.flagRate}% flag rate`} valueClass="text-[#b42318]" />
     </div>
     <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
       <p className={cn("text-[14px]", muted)} title={`All verifier searches in ${d.periods.month.label}, every supported type`}>{number(v.total)} searches this month across all types</p>
@@ -128,7 +120,6 @@ function VerifierUsage({ d, canVerify, canEvents }: { d: ExecutiveDashboard; can
     </div>
     <div className="mt-3 space-y-4">
       <MeterRow label="Verified" value={percent(v.share.verified)} share={v.share.verified} color="#3d7a22" />
-      <MeterRow label="Flagged" value={percent(v.share.fraudulent)} share={v.share.fraudulent} color="#e5484d" />
       <MeterRow label="Unknown" value={percent(v.share.not_found)} share={v.share.not_found} color="#c7dcf5" />
     </div>
   </Panel>;
@@ -151,33 +142,6 @@ function LearningTool({ d, canLearning }: { d: ExecutiveDashboard; canLearning: 
   </Panel>;
 }
 
-function TrendOverview({ d }: { d: ExecutiveDashboard }) {
-  const [hidden, setHidden] = useState<string[]>([]);
-  const days = d.trend.map(row => ({ ...row, day: new Intl.DateTimeFormat("en", { weekday: "short", timeZone: "UTC" }).format(new Date(row.date + "T00:00:00Z")) }));
-  const visible = trendSeries.filter(series => !hidden.includes(series.key));
-  const empty = days.every(row => visible.every(series => !row[series.key]));
-  return <section className={cn(card, "p-5 sm:p-6")}>
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <h2 className="flex items-center gap-2 text-[19px] font-semibold"><ChartLine size={20} strokeWidth={1.75} />Trend overview — last 7 days</h2>
-      <div className="flex flex-wrap items-center gap-2">
-        {trendChips.map(series => <button key={series.key} type="button" aria-pressed={!hidden.includes(series.key)} onClick={() => setHidden(keys => keys.includes(series.key) ? keys.filter(key => key !== series.key) : [...keys, series.key])}
-          className={cn("rounded-full px-3.5 py-1 text-[15px] transition", series.chip, hidden.includes(series.key) && "opacity-40")}>{series.label}</button>)}
-        <Link href="/analytics" className="ml-2 text-[16px] text-[#1d5fa7] hover:underline">Full analytics</Link>
-      </div>
-    </div>
-    <div className="relative h-40">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={days} barCategoryGap={6} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-          <XAxis dataKey="day" orientation="top" axisLine={false} tickLine={false} tick={{ fontSize: 15, fill: "#6f6f68" }} />
-          <Tooltip cursor={{ fill: "rgba(0,0,0,.04)" }} labelFormatter={(_, payload) => payload?.[0]?.payload?.date ?? ""} />
-          {visible.map(series => <Bar key={series.key} dataKey={series.key} name={series.label} stackId="day" fill={series.color} stroke="#fff" strokeWidth={2} />)}
-        </BarChart>
-      </ResponsiveContainer>
-      {empty && <p className={cn("absolute inset-x-0 top-1/2 text-center text-sm", muted)}>No activity in the last 7 days.</p>}
-    </div>
-  </section>;
-}
-
 function KycQueue({ d, canUsers }: { d: ExecutiveDashboard; canUsers: boolean }) {
   const k = d.kyc;
   return <Panel icon={IdCard} title="KYC queue" action={canUsers ? { href: "/users?kyc=pending", label: "Review all" } : null}>
@@ -194,16 +158,6 @@ function KycQueue({ d, canUsers }: { d: ExecutiveDashboard; canUsers: boolean })
           <td className="py-2.5"><span className={cn("rounded-full px-2.5 py-0.5 text-[13px] font-medium", kycStyle[user.status]?.className)}>{kycStyle[user.status]?.label || user.status}</span></td>
         </tr>)}</tbody>
       </table>}
-  </Panel>;
-}
-
-function UsersByBank({ d, canAccounts }: { d: ExecutiveDashboard; canAccounts: boolean }) {
-  return <Panel icon={Landmark} title="Users by bank" action={canAccounts ? { href: "/accounts", label: "Full breakdown" } : null}>
-    {!d.banks.rows.length ? <Note>No bank-connected users yet.</Note> :
-      <div className="space-y-4">{d.banks.rows.map(row => <div key={row.bank} title={`${number(row.users)} of ${number(d.banks.connectedUsers)} bank-connected users`}>
-        <div className="flex items-center justify-between text-[16px]"><span className="truncate pr-3">{row.bank}</span><span className="tabular-nums">{percent(row.percent)}</span></div>
-        <div className="mt-1.5 h-1.5 rounded-full bg-[#f0efea]"><div className="h-full rounded-full bg-[#c7dcf5]" style={{ width: `${row.percent ?? 0}%` }} /></div>
-      </div>)}</div>}
   </Panel>;
 }
 
@@ -310,11 +264,7 @@ export default function DashboardPage() {
       <VerifierUsage d={d} canVerify={access.can("verification:read")} canEvents={access.can("events:read")} />
       <LearningTool d={d} canLearning={access.can("learning:read")} />
     </div>
-    <TrendOverview d={d} />
-    <div className="grid gap-4 lg:grid-cols-2">
-      <KycQueue d={d} canUsers={access.can("users:read")} />
-      <UsersByBank d={d} canAccounts={access.can("accounts:read")} />
-    </div>
+    <KycQueue d={d} canUsers={access.can("users:read")} />
     <InfrastructureSection enabled={access.can("health:read")} />
     <p className={cn("pb-2 text-xs leading-5", muted)}>Updated {dateTime(d.generatedAt)} · refreshes every minute. Times are {d.timezone}; &ldquo;this week&rdquo; is {d.periods.week.label} (Sunday to Saturday) and &ldquo;this month&rdquo; is {d.periods.month.label}. Bank connections are accounts users entered in the app, not live bank links.</p>
   </div>;
