@@ -36,7 +36,7 @@ export interface ExecutiveDashboard {
   timezone: string;
   periods: Record<"week" | "month", { start: string; label: string }>;
   status: DashboardStatus;
-  snapshot: { totalUsers: number; newThisWeek: number; activeToday: number; activeThisMonth: number; verifiedUsers: number; verifiedPercent: number | null; bankConnected: number; bankConnectedPercent: number | null };
+  snapshot: { totalUsers: number; newThisWeek: number; activeToday: number; activeThisMonth: number; verifiedUsers: number; verifiedPercent: number | null; linkedAccountUsers: number; linkedAccountPercent: number | null };
   security: { fraudAlerts: { today: number; week: number; month: number } };
   panics: { criticalSosToday: number; guardianPanicsToday: number; resolvedToday: number; open: number; guardianAlertsToday: GuardianAlertStats };
   feed: { id: string; type: string; classification: string; title: string; status: string; createdAt: string; userId: string | null; bankName: string | null; lockedAccounts: number | null; locationShared: boolean | null }[] | null;
