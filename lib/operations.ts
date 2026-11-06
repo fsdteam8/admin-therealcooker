@@ -12,6 +12,8 @@ export interface DashboardStatus {
   // Unresolved incidents: Critical SOS activations and Elevated Guardian Panic requests.
   incidents: { active: number; criticalSos: number; elevatedGuardianPanic: number };
   kycPending: number;
+  // Community feedback contacts waiting for an admin decision.
+  feedbackReview: number;
   systems: { operational: boolean | null; degraded: string[]; checkedAt: string | null };
 }
 
@@ -31,18 +33,20 @@ export interface LearningOverview { opened: number; completed: number; notComple
 export interface IncidentActivity { total: number; criticalSos: number; elevatedGuardianPanic: number; resolved: number; averageResolutionMs: number | null; averageFirstActionMs: number | null }
 
 // Percentages and averages are null when there is nothing to measure, which is distinct from a real zero.
+// All-time security event counts. Categories come from the API, so new ones need no new fields.
+export interface SecurityEventGroup { total: number; categories: { key: string; label: string; count: number; parts?: { label: string; count: number }[] }[] }
+export interface ModuleCompletionDistribution { totalModules: number; milestones: { minimum: number; users: number }[] }
 export interface ExecutiveDashboard {
   generatedAt: string;
   timezone: string;
   periods: Record<"week" | "month", { start: string; label: string }>;
   status: DashboardStatus;
-  snapshot: { totalUsers: number; newThisWeek: number; activeToday: number; activeThisMonth: number; verifiedUsers: number; verifiedPercent: number | null; linkedAccountUsers: number; linkedAccountPercent: number | null };
-  security: { fraudAlerts: { today: number; week: number; month: number } };
-  panics: { criticalSosToday: number; guardianPanicsToday: number; resolvedToday: number; open: number; guardianAlertsToday: GuardianAlertStats };
-  feed: { id: string; type: string; classification: string; title: string; status: string; createdAt: string; userId: string | null; bankName: string | null; lockedAccounts: number | null; locationShared: boolean | null }[] | null;
+  snapshot: { totalUsers: number; newThisWeek: number; activeToday: number; activeUsers: number; activeWindow: { days: number; since: string }; totalAccounts: number; verifiedUsers: number; verifiedPercent: number | null; linkedAccountUsers: number; linkedAccountPercent: number | null };
+  security: { internal: SecurityEventGroup; external: SecurityEventGroup };
   services: ServiceStatus[];
   verifier: SearchStats;
   learning: LearningOverview;
+  learningDistribution: ModuleCompletionDistribution;
   trend: { date: string; activeUsers: number; alerts: number; panics: number }[];
   kyc: { pending: number; verified: number; rejected: number; recent: { id: string; name: string | null; userId: string | null; status: string; submittedAt: string | null }[] | null };
   banks: { connectedUsers: number; rows: { bank: string; users: number; percent: number | null }[] };
@@ -101,6 +105,25 @@ export interface CaseItem { _id: string; title: string; severity: string; status
 export interface AccountItem { _id: string; bankName: string; accountType: string; nickname: string; isLocked: boolean; lockedReason?: string; createdAt: string; user?: OperationalUser }
 export interface EventItem { _id: string; kind: string; tool?: string; source?: string; outcome?: string; occurredAt: string; user?: OperationalUser }
 
+// Community feedback on contacts the verifier had no record of (see the backend's utils/communityVotes.js).
+export type FeedbackVerdict = "legitimate" | "suspicious" | "not_sure";
+export type FeedbackStatus = "collecting" | "needs_review" | "resolved";
+export type FeedbackAction = "verify" | "flag" | "collect";
+export interface FeedbackCounts { legitimate: number; suspicious: number; not_sure: number; total: number }
+export interface FeedbackResolution { verdict: "legitimate" | "suspicious"; by: "community" | "admin"; admin?: { _id: string; name?: string; email?: string } | string; reason?: string; at: string }
+export interface FeedbackItem {
+  _id: string; type: SearchType; value: string; displayValue: string; counts: FeedbackCounts;
+  outcome: "none" | "tie" | FeedbackVerdict; status: FeedbackStatus; resolution?: FeedbackResolution;
+  verification?: { _id: string; status: "verified" | "fraudulent"; source: string; updatedAt?: string } | null;
+  firstVoteAt?: string; lastVoteAt?: string; createdAt: string; updatedAt: string;
+}
+export interface FeedbackList { items: FeedbackItem[]; pagination: Pagination; summary: { contacts: number; votesThisWeek: number; weekLabel: string; awaitingReview: number; markedScam: number }; minimumVotes: number }
+export interface FeedbackDetail extends FeedbackItem {
+  votes: { id: string; verdict: FeedbackVerdict; createdAt: string }[];
+  history: { action: "community_verdict" | "review_required" | "admin_verified" | "admin_flagged" | "keep_collecting"; by: "community" | "admin"; admin?: { _id: string; name?: string; email?: string }; reason?: string; counts: FeedbackCounts; at: string }[];
+  minimumVotes: number;
+}
+
 export const getDashboardStatus = () => api.get<ApiResponse<DashboardStatus>>("/admin/dashboard/status").then(response => response.data.data);
 export const getExecutiveDashboard = () => api.get<ApiResponse<ExecutiveDashboard>>("/admin/dashboard/executive").then(response => response.data.data);
 export const getInfrastructure = () => api.get<ApiResponse<Infrastructure>>("/admin/health/infrastructure").then(response => response.data.data);
@@ -122,3 +145,6 @@ export const updateAlert = (id: string, payload: { status: string; verdict: stri
 export const updateCase = (id: string, payload: { status: string; reason: string; resolution?: string; note?: string }) => api.patch<ApiResponse<CaseItem>>(`/admin/cases/${id}`, payload).then(response => response.data.data);
 
 export const hasPermission = (identity: AdminIdentity | undefined, permission: string) => Boolean(identity?.permissions.includes("*") || identity?.permissions.includes(permission));
+export const getFeedbackList = (params: Record<string, string | number | undefined>) => api.get<ApiResponse<FeedbackList>>("/admin/verification-feedback", { params }).then(response => response.data.data);
+export const getFeedbackDetail = (id: string) => api.get<ApiResponse<FeedbackDetail>>(`/admin/verification-feedback/${id}`).then(response => response.data.data);
+export const reviewFeedback = (id: string, payload: { action: FeedbackAction; reason?: string }) => api.patch<ApiResponse<FeedbackItem>>(`/admin/verification-feedback/${id}`, payload).then(response => response.data);

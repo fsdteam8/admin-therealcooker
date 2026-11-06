@@ -2,25 +2,14 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, Database, GraduationCap, IdCard, ScanEye, Search, Server } from "lucide-react";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Activity, Database, GraduationCap, IdCard, Landmark, Search, Server, ShieldAlert } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, LabelList, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAdminAccess } from "@/components/admin-access";
-import { getExecutiveDashboard, getInfrastructure, type ExecutiveDashboard, type Infrastructure, type ServiceState } from "@/lib/operations";
+import { getExecutiveDashboard, getInfrastructure, type ExecutiveDashboard, type Infrastructure, type ModuleCompletionDistribution, type SecurityEventGroup, type ServiceState } from "@/lib/operations";
 import { apiError, cn } from "@/lib/utils";
-import { bytes, dateTime, MeterRow, MiniStat, muted, Note, number, Panel, percent, SectionLabel, StatCard, timeAgo, uptimeTone } from "@/components/dashboard-ui";
+import { bytes, dateTime, MeterRow, MiniStat, muted, Note, number, Panel, percent, SectionLabel, StatCard, uptimeTone } from "@/components/dashboard-ui";
 
-function PanicIcon() {
-  return <span className="text-[11px] font-extrabold tracking-tight">SOS</span>;
-}
-
-// Incident classification follows the incident type: a direct SOS is Critical, an "Alert Guardians"
-// request is an Elevated Guardian Panic.
-const classificationStyle: Record<string, { dot: string; label: string }> = {
-  sos: { dot: "bg-[#e5484d]", label: "Critical SOS" },
-  guardian_alert: { dot: "bg-[#d98a00]", label: "Elevated Guardian Panic" },
-};
-const alertStatusStyle: Record<string, string> = { open: "bg-[#f9d9d9] text-[#a12b2b]", acknowledged: "bg-[#f8e5b8] text-[#7a4b00]", resolved: "bg-[#dcefd8] text-[#1f6b1f]" };
 const kycStyle: Record<string, { label: string; className: string }> = {
   pending: { label: "Pending", className: "bg-[#f8e5b8] text-[#7a4b00]" },
   completed: { label: "Verified", className: "bg-[#dcefd8] text-[#1f6b1f]" },
@@ -30,61 +19,34 @@ const serviceStateLabel: Record<ServiceState, string> = { monitored: "Monitored"
 
 function Snapshot({ d }: { d: ExecutiveDashboard }) {
   const s = d.snapshot;
-  return <section><SectionLabel>Platform snapshot</SectionLabel><div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  return <section><SectionLabel>Platform snapshot</SectionLabel><div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
     <StatCard label="Total users" value={number(s.totalUsers)} detail={s.newThisWeek ? `+${number(s.newThisWeek)} this week` : "No new users this week"} detailTone={s.newThisWeek ? "good" : undefined} title={`New users this week (${d.periods.week.label})`} />
-    <StatCard label="Active users" value={number(s.activeToday)} detail="today" title="Distinct users active in the app today" />
+    <StatCard label="Active users" value={number(s.activeUsers)} detail={`last ${s.activeWindow.days} days · ${number(s.activeToday)} today`} title={`Registered users who signed in or used the app at least once since ${dateTime(s.activeWindow.since)} (the last ${s.activeWindow.days} UTC days, today included), each counted once`} />
     <StatCard label="Verified users" value={number(s.verifiedUsers)} detail={`${percent(s.verifiedPercent)} of total users`} title="Users whose KYC verification completed" />
+    <StatCard label="Total accounts" value={number(s.totalAccounts)} detail="added by all users" title="Active bank and wallet accounts users added in the app, each counted once. Removed accounts and accounts of deleted users are not included." />
     <StatCard label="Users with a linked account" value={number(s.linkedAccountUsers)} detail={`${percent(s.linkedAccountPercent)} of total users`} title="Users with at least one active bank or wallet account linked in the app" />
   </div></section>;
 }
 
-function Security({ d }: { d: ExecutiveDashboard }) {
-  const { incidents } = d.status, { fraudAlerts } = d.security;
-  const breakdown = [incidents.criticalSos && `${number(incidents.criticalSos)} Critical SOS`, incidents.elevatedGuardianPanic && `${number(incidents.elevatedGuardianPanic)} Elevated Guardian Panic`].filter(Boolean).join(" · ");
-  return <section><SectionLabel>Security &amp; incidents</SectionLabel><div className="grid gap-4 sm:grid-cols-2">
-    <StatCard label="Active high-risk events" value={number(incidents.active)} detail={breakdown || "No active incidents"} tone={incidents.active ? "danger" : undefined} title="Unresolved incidents: Critical SOS activations and Elevated Guardian Panic requests, each counted once" />
-    <StatCard label="Fraud alerts today" value={number(fraudAlerts.today)} detail={`${number(fraudAlerts.week)} this week · ${number(fraudAlerts.month)} this month`} tone={fraudAlerts.today ? "warning" : undefined} title={`Security alerts other than SOS and guardian panics. Week: ${d.periods.week.label}; month: ${d.periods.month.label}`} />
-  </div></section>;
-}
+// Internal events are users' own safety actions in the app; external events come from account settings
+// such as transfer limits. Categories come from the API, so a new category appears without UI changes.
+const eventStyle = {
+  internal: { icon: ShieldAlert, border: "border-t-[#e5484d]", value: "text-[#b42318]", bar: "#e5484d" },
+  external: { icon: Landmark, border: "border-t-[#1c5fa8]", value: "text-[#1c5fa8]", bar: "#1c5fa8" },
+};
 
-function PanicEvents({ d, canAlerts }: { d: ExecutiveDashboard; canAlerts: boolean }) {
-  const p = d.panics, guardian = p.guardianAlertsToday, total = p.open + p.resolvedToday;
-  const push = guardian.push.trackedSince
-    ? `Push accepted ${number(guardian.push.accepted)} · failed ${number(guardian.push.failed)} · no device ${number(guardian.push.noDevice)}`
-    : "Push results are recorded from now on";
-  return <Panel icon={PanicIcon} title="Panic events" action={canAlerts ? { href: "/alerts?group=panic", label: "View all" } : null}>
-    <div className="grid grid-cols-2 gap-3">
-      <MiniStat label="Critical SOS" value={number(p.criticalSosToday)} detail="today" valueClass="text-[#d93636]" />
-      <MiniStat label="Guardian Panic" value={number(p.guardianPanicsToday)} detail="today" valueClass="text-[#b8741a]" />
+function SecurityEvents({ kind, title, description, group, action }: { kind: keyof typeof eventStyle; title: string; description: string; group: SecurityEventGroup; action: { href: string; label: string } | null }) {
+  const style = eventStyle[kind];
+  return <Panel icon={style.icon} title={title} action={action} className={cn("border-t-4", style.border)}>
+    <div className="flex flex-wrap items-baseline gap-x-2">
+      <p className={cn("text-[34px] font-semibold leading-tight tracking-tight tabular-nums", group.total ? style.value : "text-[#1a1a17]")}>{number(group.total)}</p>
+      <p className={cn("text-[15px]", muted)}>total events · all time</p>
     </div>
-    <div className="mt-3 rounded-xl border border-[#e4e2dc] p-3.5" title="Emergency notifications sent to guardians today. FCM 'accepted' means FCM took the message, not that the device displayed it.">
-      <div className="flex items-baseline justify-between gap-2"><p className={cn("text-[14px]", muted)}>Guardian alerts sent today</p><p className="text-[22px] font-semibold tabular-nums">{number(guardian.total)}</p></div>
-      <p className={cn("text-[13px]", muted)}>{number(guardian.fromSos)} from SOS · {number(guardian.fromGuardianPanic)} from Guardian Panic</p>
-      <p className={cn("text-[13px]", muted)}>{push}</p>
-    </div>
-    <div className="mt-5 space-y-4">
-      <MeterRow label="Open" value={number(p.open)} share={total ? p.open / total * 100 : 0} color="#e5484d" />
-      <MeterRow label="Resolved today" value={number(p.resolvedToday)} share={total ? p.resolvedToday / total * 100 : 0} color="#2f7d1f" />
-    </div>
-  </Panel>;
-}
-
-function IncidentFeed({ d, canAlerts }: { d: ExecutiveDashboard; canAlerts: boolean }) {
-  return <Panel icon={ScanEye} title="Live incident feed" action={canAlerts ? { href: "/alerts?group=panic&status=unresolved", label: "All incidents" } : null}>
-    {d.feed == null ? <Note>Your role can&apos;t view incident details.</Note> : !d.feed.length ? <Note>No incidents recorded.</Note> :
-      <div className="space-y-3">{d.feed.map(item => {
-        const style = classificationStyle[item.type] || classificationStyle.guardian_alert;
-        const subject = [item.userId && `User #${item.userId}`, item.bankName && `${item.bankName} account`].filter(Boolean).join(" · ");
-        const details = [timeAgo(item.createdAt), item.locationShared && "Location shared", item.lockedAccounts ? `${item.lockedAccounts} account${item.lockedAccounts === 1 ? "" : "s"} locked` : null].filter(Boolean).join(" · ");
-        return <div key={item.id} className="flex items-start gap-3 rounded-xl border border-[#e4e2dc] p-3.5">
-          <span className={cn("mt-2 size-2 shrink-0 rounded-full", style.dot)} />
-          <div className="min-w-0 flex-1">
-            <p className="text-[15px] leading-snug"><b>{style.label}:</b> {item.title}{subject && <> — {subject}</>}</p>
-            <p className={cn("mt-1 text-[14px]", muted)}>{details}</p>
-          </div>
-          <span className={cn("shrink-0 rounded-full px-2.5 py-0.5 text-[13px] font-medium capitalize", alertStatusStyle[item.status] || alertStatusStyle.open)}>{item.status}</span>
-        </div>;
-      })}</div>}
+    <p className={cn("mt-1 text-[14px] leading-snug", muted)}>{description}</p>
+    <div className="mt-5 space-y-4">{group.categories.map(category => <div key={category.key}>
+      <MeterRow label={category.label} value={number(category.count)} share={group.total ? category.count / group.total * 100 : 0} color={style.bar} />
+      {category.parts?.length ? <p className={cn("mt-1 text-[13px]", muted)}>{category.parts.map(part => `${number(part.count)} ${part.label}`).join(" · ")}</p> : null}
+    </div>)}</div>
   </Panel>;
 }
 
@@ -139,7 +101,38 @@ function LearningTool({ d, canLearning }: { d: ExecutiveDashboard; canLearning: 
       <tbody className="divide-y divide-[#ecebe6]">{rows.map(row => <tr key={row.label} title={row.title}><td className="px-3 py-2.5">{row.label}</td><td className={cn("px-3 py-2.5 text-right tabular-nums", row.className)}>{row.value}</td></tr>)}</tbody>
     </table>
     {!l.opened && <p className={cn("mt-3 text-sm", muted)}>No learning modules have been opened yet.</p>}
+    <CompletionDistribution data={d.learningDistribution} totalUsers={d.snapshot.totalUsers} />
   </Panel>;
+}
+
+const plural = (count: number, word: string) => `${number(count)} ${word}${count === 1 ? "" : "s"}`;
+
+// Users who completed at least N of the published modules; milestones are chosen by the API from the module count.
+function CompletionDistribution({ data, totalUsers }: { data: ModuleCompletionDistribution; totalUsers: number }) {
+  const rows = data.milestones.map(row => ({ ...row, tick: `${row.minimum}+`, name: `At least ${plural(row.minimum, "module")}` }));
+  const none = totalUsers - (data.milestones[0]?.users ?? 0);
+  return <div className="mt-6 border-t border-[#ecebe6] pt-5">
+    <h3 className="text-[16px] font-semibold text-[#1a1a17]">User module completion distribution</h3>
+    <p className={cn("text-[14px]", muted)}>Users who completed at least the given number of the {plural(data.totalModules, "published module")}</p>
+    {!data.totalModules ? <Note>No learning modules are published yet.</Note>
+      : !rows[0]?.users ? <Note>No user has completed a module yet.</Note>
+      : <>
+        <div className="mt-3 h-64" role="img" aria-label={rows.map(row => `${row.name}: ${plural(row.users, "user")}`).join("; ")}><ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} margin={{ top: 22, right: 8, bottom: 22, left: 4 }}>
+            <CartesianGrid vertical={false} stroke="#ecebe6" />
+            <XAxis dataKey="tick" tickLine={false} axisLine={{ stroke: "#dddbd4" }} tick={{ fill: "#6f6f68", fontSize: 13 }}
+              label={{ value: "Minimum modules completed", position: "insideBottom", offset: -14, fill: "#6f6f68", fontSize: 13 }} />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} width={44} tick={{ fill: "#6f6f68", fontSize: 13 }}
+              label={{ value: "Users", angle: -90, position: "insideLeft", offset: 12, fill: "#6f6f68", fontSize: 13 }} />
+            <Tooltip cursor={{ fill: "#f0efea" }} labelFormatter={(_, payload) => payload?.[0]?.payload?.name ?? ""} formatter={value => [number(Number(value)), "Users"]} />
+            <Bar dataKey="users" fill="#2f7d1f" radius={[6, 6, 0, 0]} maxBarSize={56}>
+              <LabelList dataKey="users" position="top" fill="#1a1a17" fontSize={13} formatter={value => number(Number(value))} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer></div>
+        {none > 0 && <p className={cn("mt-1 text-[13px]", muted)}>{plural(none, "user")} of {number(totalUsers)} {none === 1 ? "has" : "have"} not completed any module.</p>}
+      </>}
+  </div>;
 }
 
 function KycQueue({ d, canUsers }: { d: ExecutiveDashboard; canUsers: boolean }) {
@@ -247,19 +240,20 @@ export default function DashboardPage() {
   const query = useQuery({ queryKey: ["executive-dashboard"], queryFn: getExecutiveDashboard, refetchInterval: 60_000 });
   const d = query.data;
 
-  if (query.isLoading) return <div className="space-y-6">{[4, 4, 3, 2].map((count, index) =>
-    <div key={index} className={cn("grid gap-4", count === 4 ? "sm:grid-cols-2 xl:grid-cols-4" : count === 3 ? "xl:grid-cols-3" : "lg:grid-cols-2")}>{Array.from({ length: count }, (_, item) => <Skeleton key={item} className={cn("rounded-2xl", count === 4 ? "h-32" : "h-72")} />)}</div>)}</div>;
+  if (query.isLoading) return <div className="space-y-6">{[5, 3, 2].map((count, index) =>
+    <div key={index} className={cn("grid gap-4", count === 5 ? "sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5" : count === 3 ? "md:grid-cols-2 xl:grid-cols-3" : "lg:grid-cols-2")}>{Array.from({ length: count }, (_, item) => <Skeleton key={item} className={cn("rounded-2xl", count === 5 ? "h-32" : "h-72")} />)}</div>)}</div>;
   if (!d) return <div role="alert" className="rounded-2xl border border-[#e9a7ac] bg-[#f9d8da] p-5 text-sm text-[#8f1d24]">Dashboard data could not load: {apiError(query.error)} <button onClick={() => void query.refetch()} className="font-semibold underline">Retry</button></div>;
 
   return <div className="space-y-6">
     {query.isError && <div role="alert" className="rounded-2xl border border-[#e7b64e] bg-[#fbecc5] p-4 text-sm text-[#7a4b00]">Showing data from {dateTime(d.generatedAt)}; the latest refresh failed: {apiError(query.error)}</div>}
     <Snapshot d={d} />
-    <Security d={d} />
-    <div className="grid gap-4 xl:grid-cols-3">
-      <PanicEvents d={d} canAlerts={access.can("alerts:read")} />
-      <IncidentFeed d={d} canAlerts={access.can("alerts:read")} />
-      <PlatformUptime d={d} canHealth={access.can("health:read")} />
-    </div>
+    <section><SectionLabel>Security &amp; incidents</SectionLabel><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <SecurityEvents kind="internal" title="Internal security events" group={d.security.internal} description="Safety actions users started in the app"
+        action={access.can("alerts:read") ? { href: "/alerts?group=panic", label: "View alerts" } : null} />
+      <SecurityEvents kind="external" title="External security events" group={d.security.external} description="Account and financial processes such as transfer limit increases"
+        action={access.can("alerts:read") ? { href: "/alerts?type=suspicious_limit", label: "View alerts" } : null} />
+      <div className="md:col-span-2 xl:col-span-1 [&>section]:h-full"><PlatformUptime d={d} canHealth={access.can("health:read")} /></div>
+    </div></section>
     <div className="grid gap-4 lg:grid-cols-2">
       <VerifierUsage d={d} canVerify={access.can("verification:read")} canEvents={access.can("events:read")} />
       <LearningTool d={d} canLearning={access.can("learning:read")} />
