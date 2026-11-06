@@ -7,7 +7,7 @@ import { Suspense, useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useIsFetching, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Activity, Bell, ChartColumn, ChartLine, FileDown, CreditCard, Database, FileText, FolderOpen, GraduationCap, IdCard, Landmark, LayoutGrid, Link2, Lock, LogOut, Menu, Newspaper, RefreshCw, ScrollText, ShieldAlert, TriangleAlert, UserCog, Users, X } from "lucide-react";
+import { Activity, Bell, ChartColumn, ChartLine, FileDown, CreditCard, Database, FileText, FolderOpen, GraduationCap, IdCard, Landmark, LayoutGrid, Link2, Lock, LogOut, Menu, MessageSquareText, Newspaper, RefreshCw, ScrollText, ShieldAlert, TriangleAlert, UserCog, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { logoutSession } from "@/lib/client-auth";
 import { getDashboardStatus, type DashboardStatus } from "@/lib/operations";
@@ -38,6 +38,7 @@ const groups: { title: string; items: NavItem[] }[] = [
   ] },
   { title: "Tools", items: [
     { href: "/verification", label: "Verifier DB", icon: Database, permission: "verification:read" },
+    { href: "/verification/feedback", label: "Feedback & votes", icon: MessageSquareText, permission: "verification:read", badge: status => status.feedbackReview },
     { href: "/learning", label: "Learning tool", icon: GraduationCap, permission: "learning:read" },
     { href: "/banks", label: "Bank catalog", icon: Landmark },
     { href: "/news", label: "News feed", icon: Newspaper, permission: "content:read" },
